@@ -16,7 +16,7 @@ exports.config = {
     salesLeadsListId: process.env.SALES_LEADS_LIST_ID,
     salesCallsListId: process.env.SALES_CALLS_LIST_ID,
     teamsTeamId: process.env.TEAMS_TEAM_ID,
-    teamsChannelId: '19:-Sy4ICzpNIb9votYqJtgHXVsMLCBnB0DeE-4KlgBrys1@thread.tacv2',
+    teamsChannelId: process.env.TEAMS_CHANNEL_ID,
     teamsWebhookUrl: process.env.TEAMS_WEBHOOK_URL,
     plannerPlanId: process.env.PLANNER_PLAN_ID,
     zoomAccountId: process.env.ZOOM_ACCOUNT_ID,
@@ -42,6 +42,12 @@ for (const envVar of requiredEnvVars) {
     if (!process.env[envVar]) {
         throw new Error(`Missing required environment variable: ${envVar}`);
     }
+}
+if (!process.env.TEAMS_WEBHOOK_URL) {
+    console.warn('⚠ TEAMS_WEBHOOK_URL is not set. Teams notifications will be skipped.');
+}
+if (!process.env.REDIS_URL) {
+    console.warn('⚠ REDIS_URL is not set. Bull queues require Redis and will try localhost:6379.');
 }
 console.log('✓ Configuration loaded successfully');
 //# sourceMappingURL=config.js.map

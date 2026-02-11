@@ -1,7 +1,11 @@
-import { Job } from 'bull';
 import { ZoomService } from '../services/zoomService';
 import { GraphService } from '../services/graphService';
 import { QueueJob, SalesLeadItem, SalesCallItem } from '../types';
+
+type ProcessJob = {
+  id?: string | number;
+  data: QueueJob;
+};
 
 export class QueueProcessor {
   private zoomService: ZoomService;
@@ -12,7 +16,7 @@ export class QueueProcessor {
     this.graphService = new GraphService();
   }
 
-  async processMissedCall(job: Job<QueueJob>): Promise<void> {
+  async processMissedCall(job: ProcessJob): Promise<void> {
     console.log(`\n🔔 Processing missed call job ${job.id}`);
 
     try {
@@ -89,7 +93,7 @@ Please follow up with this missed call.
     }
   }
 
-  async processVoicemail(job: Job<QueueJob>): Promise<void> {
+  async processVoicemail(job: ProcessJob): Promise<void> {
     console.log(`\n📞 Processing voicemail job ${job.id}`);
 
     try {
@@ -183,7 +187,7 @@ Voicemail Recording: ${downloadUrl}
       throw error; // This will cause Bull to retry
     }
   }
-  async processSalesCall(job: Job<QueueJob>): Promise<void> {
+  async processSalesCall(job: ProcessJob): Promise<void> {
     console.log(`\n📞 Processing sales call job ${job.id}`);
 
     try {
