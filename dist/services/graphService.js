@@ -10,16 +10,74 @@ const config_1 = require("../config");
 const axios_1 = __importDefault(require("axios"));
 class GraphService {
     constructor() {
+        this.graphAccessToken = null;
+        this.graphAccessTokenExpiry = 0;
         this.credential = new identity_1.ClientSecretCredential(config_1.config.tenantId, config_1.config.applicationId, config_1.config.clientSecret);
         this.client = microsoft_graph_client_1.Client.initWithMiddleware({
             authProvider: {
                 getAccessToken: async () => {
-                    const token = await this.credential.getToken('https://graph.microsoft.com/.default');
-                    return token.token;
+                    return this.getGraphAccessToken();
                 },
             },
         });
         console.log('✓ Graph service initialized with App Registration');
+    }
+    async getGraphAccessToken() {
+        if (this.graphAccessToken &&
+            Date.now() < this.graphAccessTokenExpiry - 120000) {
+            return this.graphAccessToken;
+        }
+        try {
+            const token = await this.credential.getToken('https://graph.microsoft.com/.default');
+            if (!token?.token) {
+                throw new Error('Empty token returned by ClientSecretCredential');
+            }
+            this.graphAccessToken = token.token;
+            this.graphAccessTokenExpiry = token.expiresOnTimestamp || Date.now() + 3600 * 1000;
+            return this.graphAccessToken;
+        }
+        catch (error) {
+            console.warn(`⚠ ClientSecretCredential token acquisition failed (${error?.code || error?.name || 'unknown'}): ${error?.message}`);
+            console.warn('⚠ Falling back to direct OAuth token request for Graph.');
+            return this.getGraphAccessTokenDirect();
+        }
+    }
+    async getGraphAccessTokenDirect() {
+        const tokenUrl = `https://login.microsoftonline.com/${encodeURIComponent(config_1.config.tenantId)}/oauth2/v2.0/token`;
+        const requestBody = new URLSearchParams({
+            client_id: config_1.config.applicationId,
+            client_secret: config_1.config.clientSecret,
+            scope: 'https://graph.microsoft.com/.default',
+            grant_type: 'client_credentials',
+        }).toString();
+        try {
+            const response = await axios_1.default.post(tokenUrl, requestBody, {
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                timeout: 10000,
+            });
+            const accessToken = response.data?.access_token;
+            const expiresIn = Number(response.data?.expires_in || 3600);
+            if (!accessToken) {
+                throw new Error('Token endpoint response missing access_token');
+            }
+            this.graphAccessToken = accessToken;
+            this.graphAccessTokenExpiry = Date.now() + expiresIn * 1000;
+            console.log('✓ Acquired Graph access token via direct OAuth endpoint');
+            return accessToken;
+        }
+        catch (error) {
+            const status = error?.response?.status;
+            const data = error?.response?.data;
+            if (status) {
+                console.error(`✗ Direct OAuth token request failed (HTTP ${status})`);
+            }
+            if (data) {
+                console.error('OAuth error response:', JSON.stringify(data));
+            }
+            throw error;
+        }
     }
     async createSalesLeadItem(item) {
         try {
