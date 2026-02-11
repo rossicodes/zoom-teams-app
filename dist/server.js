@@ -6,6 +6,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
+const promises_1 = __importDefault(require("dns/promises"));
+const https_1 = __importDefault(require("https"));
 const config_1 = require("./config");
 const routes_1 = require("./routes");
 const queueService_1 = require("./services/queueService");
@@ -102,8 +104,54 @@ class Server {
             console.log(`  Log Call:   http://localhost:${port}/api/log-call`);
             console.log(`  Test Graph: http://localhost:${port}/api/test-graph`);
             console.log('===========================================\n');
+            this.logProxyEnvironment();
+            this.runNetworkDiagnostics().catch((err) => {
+                console.error('⚠ Network diagnostics failed:', err.message);
+            });
             this.graphService.testConnection().catch((err) => {
                 console.error('⚠ Warning: Could not connect to Graph API:', err.message);
+            });
+        });
+    }
+    logProxyEnvironment() {
+        const proxyVars = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY'];
+        const present = proxyVars.filter((name) => !!process.env[name]);
+        if (present.length > 0) {
+            console.warn(`⚠ Proxy environment variables detected: ${present.join(', ')}`);
+        }
+        else {
+            console.log('✓ No proxy environment variables detected');
+        }
+    }
+    async runNetworkDiagnostics() {
+        const hosts = ['login.microsoftonline.com', 'graph.microsoft.com'];
+        for (const host of hosts) {
+            try {
+                const result = await promises_1.default.lookup(host);
+                console.log(`✓ DNS lookup ${host} -> ${result.address}`);
+            }
+            catch (error) {
+                console.error(`✗ DNS lookup failed for ${host}: ${error.code || error.message}`);
+            }
+        }
+        await this.probeHttps('https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration');
+        await this.probeHttps('https://graph.microsoft.com/v1.0/$metadata');
+    }
+    async probeHttps(url) {
+        await new Promise((resolve) => {
+            const req = https_1.default.get(url, { timeout: 5000 }, (res) => {
+                console.log(`✓ HTTPS probe ${url} -> ${res.statusCode}`);
+                res.resume();
+                resolve();
+            });
+            req.on('timeout', () => {
+                console.error(`✗ HTTPS probe timeout: ${url}`);
+                req.destroy();
+                resolve();
+            });
+            req.on('error', (error) => {
+                console.error(`✗ HTTPS probe failed ${url}: ${error.code || error.message}`);
+                resolve();
             });
         });
     }

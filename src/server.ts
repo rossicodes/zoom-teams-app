@@ -1,6 +1,8 @@
 import express, { Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import dns from 'dns/promises';
+import https from 'https';
 import { config } from './config';
 import { createRoutes } from './routes';
 import { QueueService } from './services/queueService';
@@ -145,8 +147,63 @@ class Server {
       console.log('===========================================\n');
 
       // Test Graph API connection on startup
+      this.logProxyEnvironment();
+      this.runNetworkDiagnostics().catch((err) => {
+        console.error('⚠ Network diagnostics failed:', err.message);
+      });
+
       this.graphService.testConnection().catch((err) => {
         console.error('⚠ Warning: Could not connect to Graph API:', err.message);
+      });
+    });
+  }
+
+  private logProxyEnvironment(): void {
+    const proxyVars = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY'];
+    const present = proxyVars.filter((name) => !!process.env[name]);
+
+    if (present.length > 0) {
+      console.warn(`⚠ Proxy environment variables detected: ${present.join(', ')}`);
+    } else {
+      console.log('✓ No proxy environment variables detected');
+    }
+  }
+
+  private async runNetworkDiagnostics(): Promise<void> {
+    const hosts = ['login.microsoftonline.com', 'graph.microsoft.com'];
+
+    for (const host of hosts) {
+      try {
+        const result = await dns.lookup(host);
+        console.log(`✓ DNS lookup ${host} -> ${result.address}`);
+      } catch (error: any) {
+        console.error(`✗ DNS lookup failed for ${host}: ${error.code || error.message}`);
+      }
+    }
+
+    await this.probeHttps(
+      'https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration'
+    );
+    await this.probeHttps('https://graph.microsoft.com/v1.0/$metadata');
+  }
+
+  private async probeHttps(url: string): Promise<void> {
+    await new Promise<void>((resolve) => {
+      const req = https.get(url, { timeout: 5000 }, (res) => {
+        console.log(`✓ HTTPS probe ${url} -> ${res.statusCode}`);
+        res.resume();
+        resolve();
+      });
+
+      req.on('timeout', () => {
+        console.error(`✗ HTTPS probe timeout: ${url}`);
+        req.destroy();
+        resolve();
+      });
+
+      req.on('error', (error: any) => {
+        console.error(`✗ HTTPS probe failed ${url}: ${error.code || error.message}`);
+        resolve();
       });
     });
   }
