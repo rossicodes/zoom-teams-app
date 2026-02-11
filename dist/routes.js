@@ -1,7 +1,11 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createRoutes = createRoutes;
 const express_1 = require("express");
+const crypto_1 = __importDefault(require("crypto"));
 const webhookValidator_1 = require("./utils/webhookValidator");
 const config_1 = require("./config");
 function createRoutes(queueService, zoomService, graphService) {
@@ -22,6 +26,13 @@ function createRoutes(queueService, zoomService, graphService) {
             res.status(500).json({ error: error.message });
         }
     });
+    router.get('/webhook/zoom', (req, res) => {
+        res.status(200).json({
+            status: 'ok',
+            message: 'Zoom webhook endpoint is reachable',
+            timestamp: new Date().toISOString(),
+        });
+    });
     router.post('/webhook/zoom', async (req, res) => {
         try {
             const timestamp = req.headers['x-zm-request-timestamp'];
@@ -38,6 +49,22 @@ function createRoutes(queueService, zoomService, graphService) {
             const event = req.body;
             console.log(`\n📥 Received Zoom webhook: ${event.event}`);
             console.log('📦 Full payload:', JSON.stringify(event, null, 2));
+            if (event.event === 'endpoint.url_validation') {
+                const plainToken = req.body?.payload?.plainToken;
+                if (!plainToken) {
+                    console.warn('⚠ endpoint.url_validation missing plainToken');
+                    return res.status(400).json({ error: 'Missing plainToken' });
+                }
+                const encryptedToken = crypto_1.default
+                    .createHmac('sha256', config_1.config.zoomWebhookSecretToken)
+                    .update(plainToken)
+                    .digest('hex');
+                console.log('✓ Responding to endpoint.url_validation challenge');
+                return res.status(200).json({
+                    plainToken,
+                    encryptedToken,
+                });
+            }
             switch (event.event) {
                 case 'phone.callee_ended':
                 case 'phone.caller_ended': {

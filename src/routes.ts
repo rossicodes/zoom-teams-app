@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import { validateZoomWebhook } from './utils/webhookValidator';
 import { ZoomService } from './services/zoomService';
 import { GraphService } from './services/graphService';
@@ -33,6 +34,14 @@ export function createRoutes(
   });
 
   // Zoom webhook receiver
+  router.get('/webhook/zoom', (req: Request, res: Response) => {
+    res.status(200).json({
+      status: 'ok',
+      message: 'Zoom webhook endpoint is reachable',
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   router.post('/webhook/zoom', async (req: Request, res: Response) => {
     try {
       // Get headers for validation
@@ -57,6 +66,27 @@ export function createRoutes(
       const event: ZoomWebhookEvent = req.body;
       console.log(`\n📥 Received Zoom webhook: ${event.event}`);
       console.log('📦 Full payload:', JSON.stringify(event, null, 2));
+
+      // Zoom endpoint URL validation challenge
+      if (event.event === 'endpoint.url_validation') {
+        const plainToken = (req.body as any)?.payload?.plainToken;
+
+        if (!plainToken) {
+          console.warn('⚠ endpoint.url_validation missing plainToken');
+          return res.status(400).json({ error: 'Missing plainToken' });
+        }
+
+        const encryptedToken = crypto
+          .createHmac('sha256', config.zoomWebhookSecretToken)
+          .update(plainToken)
+          .digest('hex');
+
+        console.log('✓ Responding to endpoint.url_validation challenge');
+        return res.status(200).json({
+          plainToken,
+          encryptedToken,
+        });
+      }
 
       // Handle different event types
       switch (event.event) {
